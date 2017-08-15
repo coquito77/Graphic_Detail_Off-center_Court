@@ -1,0 +1,368 @@
+---
+title: "Graphic Detail "
+subtitle: "Centering the Supreme Court"
+author: "Moises Evangelista"
+date: "Prepared `r format(Sys.time(), '%B %d, %Y')`"
+output:
+  pdf_document:
+    fig_caption: true
+    fig_crop: false
+fontsize: 11pt
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(cache = TRUE, echo = FALSE, message = FALSE, warning = FALSE, include = FALSE)
+
+rm(list = ls(all = TRUE)) #start with empty workspace
+
+startTime <- Sys.time() # start the clock
+
+library(data.table)
+library(tidyverse)
+#library(readxl)
+library(RColorBrewer)
+
+library(httr)
+set_config( config( ssl_verifypeer = 0L ))
+
+library(rvest)
+
+library(magick)
+library(grid)
+
+setwd("~/GitHub/Graphic_Detail_Off-center_Court") # set the working directory
+
+list.files()
+
+```
+
+This chart mimics the chart that appears on the economist magazine online [http://www.economist.com/blogs/graphicdetail/2017/02/daily-chart](http://www.economist.com/blogs/graphicdetail/2017/02/daily-chart)
+
+
+```{r importData, eval = FALSE}
+
+# data is from here
+# http://mqscores.berkeley.edu/replication.php
+# Chart to replicate is here
+# http://www.economist.com/blogs/graphicdetail/2017/02/daily-chart
+
+justices <- fread("http://mqscores.berkeley.edu/media/2015/justices.csv") %>% 
+  select(term:post_mn) %>% 
+  mutate(YearTerm = as.Date(paste0(term,"-01-01")))
+
+MedianJustices <- justices %>% 
+  group_by(YearTerm) %>% 
+  summarise(medJustices = median(post_mn, na.rm = TRUE))
+
+# court <- fread("http://mqscores.berkeley.edu/media/2015/court.csv") 
+
+MaxPoint <- justices %>%
+  group_by(justiceName) %>%
+  na.omit() %>%
+  filter(YearTerm == max(YearTerm)) %>%
+  droplevels()
+
+```
+
+```{r processData, eval=FALSE}
+
+### scrape the presidetial inagurations from wikipedia 'the historical version'
+
+myurl <- "https://en.wikipedia.org/wiki/List_of_Presidents_of_the_United_States"
+
+df <- read_html(GET(myurl, user_agent("myagent"))) %>%
+  html_table(fill = TRUE,header = NA) %>%
+  .[[2]]
+
+colnames(df) <- df[1,][!is.na(df[1,])] %>% 
+  make.names(unique = TRUE)
+
+# drop the row that was used for column names
+df = df[-1,]
+
+df <- df %>% # head(15) %>% 
+  mutate(`Presidency.a..1` = ifelse(nchar(`Presidency.a..1`) < 9, NA , `Presidency.a..1`))
+
+df = as.data.frame(t(apply(df,1, function(x) { return(c(x[!is.na(x)],x[is.na(x)]) )} )))
+
+df <- df %>% # head(15) %>% 
+  mutate(V4 = ifelse(nchar(as.character(V4)) < 9, NA , as.character(V4)))
+
+df = as.data.frame(t(apply(df,1, function(x) { return(c(x[!is.na(x)],x[is.na(x)]) )} )))
+
+listofPresidents <- df %>% 
+  mutate(V2 = ifelse(grepl( "April", V3,), as.character(V3), as.character(V2))) %>% 
+  select(Presidency = V1 ,Term = V2, President = V4, Party = V7) %>% 
+  group_by(Presidency,President) %>% 
+  slice(1) %>% ungroup %>% 
+  mutate(#Term = gsub('\\[.*?\\]|\\(.*?\\)', '', Term), # remove everyhting between brackets or parenthesis
+    Term = gsub( " *\\[.*?\\] *", "", Term),
+    #Term = gsub(",| ","",Term, perl =TRUE),
+    DateTermStart = gsub("([A-z]+ [0-9]+, [0-9]{4}).*", "\\1", Term),
+    DateTermStart = as.Date(DateTermStart, format = "%B %d, %Y"),
+    DateTermEnd = sub("[A-z]+ [0-9]+, [0-9]{4}..","",Term),
+    DateTermEnd = gsub("[^,|[:alnum:]]", "", DateTermEnd),
+    DateTermEnd = as.Date(DateTermEnd, format = "%B %d, %Y"),
+    President = gsub('\\[.*?\\]', '', President),
+    LivedYearsLenght = gsub(".*\\(|\\).*", "", President),
+    LivedYearsLenght = gsub("[^[:digit:]]","", LivedYearsLenght),
+    LivedYearsLenght = as.numeric(LivedYearsLenght),
+    LiveSpan = stringr::str_extract_all(President, '[0-9]{4}.[0-9]{4}'),
+    LiveSpan = gsub("\u0096", "", LiveSpan),
+    LiveSpan = ifelse(nchar(LiveSpan) > 9, stringr::str_extract(President, '[0-9]{4}'), LiveSpan),
+    President = sub("[0-9]{4}.*", "",President),
+    President = gsub("\n","", President),
+    President = gsub("Born ","", President),
+    Party = gsub('\\[.*?\\]', '', Party)
+  ) %>% 
+  select(- Term) %>% 
+  separate(LiveSpan, c("YrBirth", "YrDeath")) %>% 
+  mutate_at(vars(President:Party),
+            funs(as.factor(as.character(.)))) %>% 
+  mutate_at(vars(YrBirth:YrDeath),
+            funs(as.numeric(.)))
+
+# rm(list = ls(all = TRUE)) #start with empty workspace
+# https://gist.github.com/seasmith/3dfbd76cf2f12f185ef86ae8b4528874
+
+myurl <- "https://en.wikipedia.org/wiki/Heights_of_presidents_and_presidential_candidates_of_the_United_States"
+
+df1 <- read_html(GET(myurl, user_agent("myagent"))) %>%
+  html_table(fill = TRUE,header = NA) %>%
+  .[[1]] 
+
+colnames(df1) <- make.names(colnames(df1) ,unique = TRUE)
+
+listofPresidentsHeights <- df1 %>% 
+  select(Winner = President, Height = Height..cm.) %>% unique %>% 
+  mutate(Height = gsub("\\scm","",Height),
+         Winner = gsub( " *\\[.*?\\] *", "", Winner),
+         Winner = ifelse(Winner == "George H.W. Bush" , "George H. W. Bush",
+                         as.character(Winner)))
+
+listofPresidents <- full_join(listofPresidents, listofPresidentsHeights, 
+               by = c("President" = "Winner")) %>% 
+  arrange(DateTermStart)
+
+# add a date to Trumps presidency
+ 
+listofPresidents <- listofPresidents %>% #filter(DateTermStart >= "1933-01-01") %>% 
+  mutate(DateTermEnd = as.Date(ifelse(is.na(DateTermEnd) ,Sys.Date()+150, 
+                                      DateTermEnd),  origin = "1970-01-01"))
+
+rm(list=setdiff(ls(), c("listofPresidents", "MedianJustices", "MaxPoint","justices")))
+
+
+save.image("./datasets.RData")
+
+```
+
+```{r loaddata}
+# rm(list = ls(all = TRUE)); setwd("~/GitHub/Graphic_Detail_Off-center_Court") # set the working directory
+
+load("datasets.RData")
+
+```
+
+```{r downloadPictures}
+
+# http://blogs.sas.com/content/iml/2016/11/14/viz-age-us-president.html
+# https://communities.sas.com/t5/SAS-GRAPH-and-ODS-Graphics/Fun-With-SAS-ODS-Graphics-All-the-Presidents-Heights/td-p/354854
+# http://giorasimchoni.com/2017/06/04/2017-06-04-the-one-with-friends/
+
+library(jpeg)
+library(tiff)
+library(png)
+
+url <- "https://en.wikipedia.org/wiki/List_of_Presidents_of_the_United_States"
+# 
+# links <- readLines(url) %>% 
+#   as.data.frame() %>% 
+#   select(links = 1) %>% 
+#   filter(grepl("wiki/File:",links)) %>% 
+#   filter(grepl("jpg|tif|jpeg|gif",links)) %>% droplevels() %>% 
+#   mutate(links =  sub(".*src\\=","",links),
+#          links = sub("width.*","",links),
+#          links = gsub('"',"", links),
+#          links = gsub(' ',"", links),
+#          links = paste0("https:",links),
+#          fileNames = gsub(".*/","",links),
+#          fileNames = gsub('"|165px|-|%|2C|lossy-page1',"", fileNames))
+
+Newlinks <- url %>%
+  read_html() %>%
+  html_nodes("img") %>%
+  html_attr("src") %>%
+  .[grepl("jpg$|tif$|jpeg$|gif$|JQA_Photo.tif.png$|165px-Zachary_Taylor_restored_and_cropped.png", .)]
+
+Newlinks = paste0("https:", Newlinks)
+
+fileNames <- paste0("./Pres",listofPresidents$DateTermStart,".png")
+
+ifelse(!dir.exists(file.path("./pics")),dir.create(file.path("./pics")), FALSE)
+
+setwd(file.path("./pics"))
+
+library(magick)
+
+for(i in 1:length(Newlinks)) {
+# one pic is a special case that the package magick cant handle
+
+if(grepl("President_Roosevelt",Newlinks[i])){
+  
+download.file(Newlinks[i], "tempPicture.jpg", mode = "wb")
+
+readImage <- readJPEG("tempPicture.jpg")
+
+writePNG( readImage, target = fileNames[i])
+
+unlink("tempPicture.jpg")
+
+} else {
+    x <- image_read(Newlinks[i])
+    image_info(x)
+    print(Newlinks[i])
+    
+     try(
+    image_write(x, path = fileNames[i], format = "png"))
+    print(fileNames[i])
+
+}
+  
+}
+
+setwd("~/GitHub/Graphic_Detail_Off-center_Court") # set the working directory
+
+```
+
+
+```{r plotPresidentsHeights, include = TRUE, eval = TRUE}
+
+PressHeight <- as.numeric(listofPresidents$Height)
+
+listofPresidents <- listofPresidents %>% rowwise %>%
+  mutate(MeanTermDate = mean.Date(c(DateTermStart,DateTermEnd)))
+
+# create base plot
+p <- ggplot() +
+  geom_rect(data = listofPresidents, 
+            aes(xmin = DateTermStart, xmax = DateTermEnd, ymin = 0, ymax = as.numeric(Height), 
+                fill = Party), colour = "grey50", alpha =  1/3, size = .05) +
+  geom_rect(data = listofPresidents, 
+            aes(xmin = DateTermStart, xmax = DateTermEnd, ymin = 0, ymax = as.numeric(Height), 
+                fill = Party), colour = "grey50", alpha =  1/3, size = .05) +
+  geom_text(data = listofPresidents,
+            aes(x = MeanTermDate, y = PressHeight,label = President, angle = 90),
+            vjust = -.005, 
+            hjust = 1,
+            size = .8,
+            color = "black",# #c51b8a",
+            check_overlap = FALSE)
+ 
+png(tf <- tempfile(fileext = ".png"), 1000, 1000)
+par(mar = rep(0,4), yaxs="i", xaxs="i")
+plot(0, type = "n", ylim = c(0,1), xlim=c(0,1), axes=F, xlab=NA, ylab=NA)
+plotrix::draw.circle(.5,0.5,.5, col="black")
+dev.off()
+
+# setwd("~/GitHub/Graphic_Detail_Off-center_Court") # set the working directory
+
+pics <- dir(paste0(getwd(),"/pics"), "*.png$")
+
+pics <- paste0("./pics/",pics)
+
+picNames <- sub('\\.png$',"",pics) %>% basename(.) %>% make.names(.)
+
+for (i in 1:length(pics)) {
+  
+  x <- pics[i]
+  x <- image_read(x)
+  mask <- image_read(tf)
+  mask <- image_scale(mask, as.character(image_info(x)$width))
+  
+  x <- image_composite(mask, x, "plus") 
+  x <- rasterGrob(x, interpolate = TRUE)
+  
+  p <- p +  annotation_custom(grob = x,
+                              ymin= PressHeight[i]+.01,
+                              ymax= PressHeight[i]+1,
+                              xmin = as.numeric(listofPresidents$MeanTermDate[i]- 200),
+                              xmax = as.numeric(listofPresidents$MeanTermDate[i]) + 200)
+  p
+  # assign(picNames[i],x)
+  rm(x)
+  
+}
+
+colourCount = length(unique(listofPresidents$Party)) + 1
+getPalette = colorRampPalette(brewer.pal(8, "Accent"))
+
+p +   scale_fill_manual(values = getPalette(colourCount),
+                      name = "",
+                      guide =  "none") +
+  scale_x_date(date_breaks = "10 years", date_labels = "%Y") +
+  #geom_image(aes(image=image)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(x = "Year",
+       y = "Height in centimeters",
+       title = "Off-Center Court",
+       subtitle = "Measuring the relative location of U.S. Supreme Court justices on an ideological continuum \nallows us to better understand the politics of the high court. \nLines marked the ideology by each justice member, the thicker line marks the court's median \nideology over the years.")
+
+```
+
+
+```{r plotCourt, include = TRUE, eval = TRUE}
+
+PresidentialParties <- listofPresidents %>% filter(DateTermStart >= "1933-01-01") %>% 
+  mutate(DateTermEnd = as.Date(ifelse(is.na(DateTermEnd) ,Sys.Date()+90, 
+                                      DateTermEnd),  origin = "1970-01-01"),
+         PresidencialDays = as.numeric(difftime(DateTermEnd, DateTermStart,
+                                                units = c("days"))))
+
+colourCount = length(unique(justices$justiceName)) + 1
+getPalette = colorRampPalette(brewer.pal(8, "Accent"))
+
+ggplot() +
+  geom_rect(data = PresidentialParties, aes(xmin = DateTermStart, xmax = DateTermEnd, ymin = -8, ymax = 8, 
+                                            fill = Party), colour = "grey50", alpha =  1/3, size = .05) +
+  # geom_segment(aes(x = DateTermStart, y = -7, 
+  #                  xend = DateTermStart, yend = 5, colour = "brown"), data = PresidentialParties) + 
+  #geom_vline(xintercept = PresidentialParties$DateTermStart) +
+  geom_step(data = MedianJustices, aes( x = YearTerm, y = medJustices, group = 1, colour = "black"),
+            linetype = "solid", size = 2, alpha = 1/1.5) +
+  geom_line(data = justices, aes( x = YearTerm, y = post_mn,
+                                  group = justiceName, colour = as.factor(justices$justiceName)),
+            linetype = "solid", size = 1) +
+  scale_colour_manual(values = getPalette(colourCount),
+                      name = "",
+                      guide =  "none") +
+  geom_hline(yintercept = 0) +
+  scale_x_date(date_breaks = "4 years", date_labels = "%Y") +
+  geom_point(data = MaxPoint, aes(x = YearTerm, y = post_mn),
+             stroke = .1, colour = "black", size = 1, shape = 21, fill = "white") +
+  geom_text(data = PresidentialParties,
+            aes(x = DateTermStart, y = 6,label = President, angle = 90),
+            vjust = 1.5, 
+            hjust = 1,
+            size = .8,
+            color = "black",# #c51b8a",
+            check_overlap = FALSE) +
+  geom_text(data = MaxPoint,
+            aes(x = YearTerm, y = post_mn,label = justiceName),
+            vjust = ifelse(grepl("SGBreyer|SSotomayor|AScalia", MaxPoint$justiceName), -1,1), 
+            hjust = 1,
+            size = .8,
+            color = "black",# #c51b8a",
+            check_overlap = FALSE) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+  labs(x = "Year",
+       y = "Judicial Ideology",
+       title = "Off-Center Court",
+       subtitle = "Measuring the relative location of U.S. Supreme Court justices on an ideological continuum \nallows us to better understand the politics of the high court. \nLines marked the ideology by each justice member, the thicker line marks the court's median \nideology over the years.")
+
+```
+

@@ -13,7 +13,7 @@ urlcolor: blue
 
 ```{r setup, include=FALSE}
 
-knitr::opts_chunk$set(cache = TRUE, echo = FALSE, message = FALSE, warning = FALSE, include = FALSE)
+knitr::opts_chunk$set(cache = TRUE, echo = FALSE, message = FALSE, warning = FALSE, include = FALSE, dev = "cairo_pdf")
 
 rm(list = ls(all = TRUE)) #start with empty workspace
 
@@ -31,6 +31,8 @@ library(rvest)
 
 library(magick)
 library(grid)
+
+library(hrbrthemes)
 
 setwd("~/GitHub/Graphic_Detail_Off-center_Court") # set the working directory
 
@@ -238,83 +240,17 @@ setwd("~/GitHub/Graphic_Detail_Off-center_Court") # set the working directory
 ```
 
 
-```{r plotPresidentsHeights, include = TRUE, eval = TRUE}
-
-PressHeight <- as.numeric(listofPresidents$Height)
-
-listofPresidents <- listofPresidents %>% rowwise %>%
-  mutate(MeanTermDate = mean.Date(c(DateTermStart,DateTermEnd)))
-
-# create base plot
-p <- ggplot() +
-  geom_rect(data = listofPresidents, 
-            aes(xmin = DateTermStart, xmax = DateTermEnd, ymin = 0, ymax = as.numeric(Height), 
-                fill = Party), colour = "grey50", alpha =  1/3, size = .05) +
-  geom_rect(data = listofPresidents, 
-            aes(xmin = DateTermStart, xmax = DateTermEnd, ymin = 0, ymax = as.numeric(Height), 
-                fill = Party), colour = "grey50", alpha =  1/3, size = .05) +
-  geom_text(data = listofPresidents,
-            aes(x = MeanTermDate, y = PressHeight,label = President, angle = 90),
-            vjust = -.005, 
-            hjust = 1,
-            size = .8,
-            color = "black",# #c51b8a",
-            check_overlap = FALSE)
- 
-png(tf <- tempfile(fileext = ".png"), 1000, 1000)
-par(mar = rep(0,4), yaxs="i", xaxs="i")
-plot(0, type = "n", ylim = c(0,1), xlim=c(0,1), axes=F, xlab=NA, ylab=NA)
-plotrix::draw.circle(.5,0.5,.5, col="black")
-dev.off()
-
-# setwd("~/GitHub/Graphic_Detail_Off-center_Court") # set the working directory
-
-pics <- dir(paste0(getwd(),"/pics"), "*.png$")
-
-pics <- paste0("./pics/",pics)
-
-picNames <- sub('\\.png$',"",pics) %>% basename(.) %>% make.names(.)
-
-for (i in 1:length(pics)) {
-  
-  x <- pics[i]
-  x <- image_read(x)
-  mask <- image_read(tf)
-  mask <- image_scale(mask, as.character(image_info(x)$width))
-  
-  x <- image_composite(mask, x, "plus") 
-  x <- rasterGrob(x, interpolate = TRUE)
-  
-  p <- p +  annotation_custom(grob = x,
-                              ymin= PressHeight[i]+.01,
-                              ymax= PressHeight[i]+1,
-                              xmin = as.numeric(listofPresidents$MeanTermDate[i]- 200),
-                              xmax = as.numeric(listofPresidents$MeanTermDate[i]) + 200)
-  p
-  # assign(picNames[i],x)
-  rm(x)
-  
-}
-
-colourCount = length(unique(listofPresidents$Party)) + 1
-getPalette = colorRampPalette(brewer.pal(8, "Accent"))
-
-p +   scale_fill_manual(values = getPalette(colourCount),
-                      name = "",
-                      guide =  "none") +
-  scale_x_date(date_breaks = "10 years", date_labels = "%Y") +
-  #geom_image(aes(image=image)) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  labs(x = "Year",
-       y = "Height in centimeters",
-       title = "Off-Center Court",
-       subtitle = "Measuring the relative location of U.S. Supreme Court justices on an ideological continuum \nallows us to better understand the politics of the high court. \nLines marked the ideology by each justice member, the thicker line marks the court's median \nideology over the years.")
-
-```
 
 
-```{r plotCourt, include = TRUE, eval = TRUE}
+```{r plotCourt, include = TRUE, eval = TRUE, message=FALSE}
+
+# library(extrafont)
+#   loadfonts()
+# 
+# fonts()
+# fonttable()
+
+update_geom_font_defaults(family=font_rc_light)
 
 PresidentialParties <- listofPresidents %>% filter(DateTermStart >= "1933-01-01") %>% 
   mutate(DateTermEnd = as.Date(ifelse(is.na(DateTermEnd) ,Sys.Date()+90, 
@@ -357,7 +293,8 @@ ggplot() +
             size = .8,
             color = "black",# #c51b8a",
             check_overlap = FALSE) +
-  theme_bw() +
+  #theme_bw() +
+  theme_ipsum_rc(plot_title_size = 15, subtitle_size = 10, caption_size = 5) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))+
   labs(x = "Year",
        y = "Judicial Ideology",
@@ -366,3 +303,105 @@ ggplot() +
 
 ```
 
+```{r PresidentsHeights, include = FALSE, eval = TRUE, message=FALSE, cache = FALSE}
+
+PressHeight <- as.numeric(listofPresidents$Height)
+
+listofPresidents <- listofPresidents %>% rowwise %>%
+  mutate(MeanTermDate = mean.Date(c(DateTermStart,DateTermEnd)),
+         Party = gsub("April.*|\\(.*","",Party))
+
+# create image to use as mask
+
+png(tf <- tempfile(fileext = ".png"), 1000, 1000)
+par(mar = rep(0,4), yaxs="i", xaxs="i")
+plot(0, type = "n", ylim = c(0,1), xlim=c(0,1), axes=F, xlab=NA, ylab=NA)
+plotrix::draw.circle(.5,0.5,.5, col="black")
+dev.off()
+
+```
+
+
+\newpage
+
+This chart mimics the chart that appears on the SAS community city [https://communities.sas.com/t5/SAS-GRAPH-and-ODS-Graphics/Fun-With-SAS-ODS-Graphics-All-the-Presidents-Heights/td-p/354854](https://communities.sas.com/t5/SAS-GRAPH-and-ODS-Graphics/Fun-With-SAS-ODS-Graphics-All-the-Presidents-Heights/td-p/354854)
+
+
+
+
+```{r plotPresidentsHeights, include = TRUE, eval = TRUE, message=FALSE, cache = FALSE}
+
+# create base plot
+p <- ggplot() +
+  geom_rect(data = listofPresidents, 
+            aes(xmin = DateTermStart, xmax = DateTermEnd, ymin = 0, ymax = as.numeric(Height), 
+                fill = Party), colour = "grey50", alpha =  1/3, size = .05) +
+  geom_rect(data = listofPresidents, 
+            aes(xmin = DateTermStart, xmax = DateTermEnd, ymin = 0, ymax = as.numeric(Height), 
+                fill = Party), colour = "grey50", alpha =  1/3, size = .05) +
+  geom_text(data = listofPresidents,
+            aes(x = MeanTermDate, y = PressHeight,label = President, angle = 90),
+            vjust = -.005, 
+            hjust = 1,
+            size = .8,
+            color = "black",# #c51b8a",
+            check_overlap = FALSE)
+ 
+# setwd("~/GitHub/Graphic_Detail_Off-center_Court") # set the working directory
+
+pics <- dir(paste0(getwd(),"/pics"), "*.png$",  full.names = TRUE)
+
+picNames <- sub('\\.png$',"",pics) %>% basename(.) %>% make.names(.)
+
+for (i in 1:length(pics)) {
+  
+  x <- pics[i]
+  x <- image_read(x)
+  mask <- image_read(tf)
+  mask <- image_scale(mask, as.character(image_info(x)$width))
+  
+  x <- image_composite(mask, x, "plus")
+  #x <- image_transparent(x, color = "transparent", fuzz = 50)
+  #
+  x  <- image_fill(x, "transparent", point = "+164+164", fuzz = 50) # bottom right
+  
+  x  <- image_fill(x, "transparent", point = "+1+1", fuzz = 50) # top left
+  
+  x  <- image_fill(x, "transparent", point = "+1+164", fuzz = 50) # bottom left
+  
+  x  <- image_fill(x, "transparent", point = "+164+1", fuzz = 50) # top left
+  
+  x <- rasterGrob(x, interpolate = TRUE)
+  
+  p <- p + annotation_custom(grob = x,
+                              ymin = PressHeight[i]+.07,
+                              ymax = PressHeight[i]+4,
+                              xmin = as.numeric(listofPresidents$MeanTermDate[i]- 400),
+                              xmax = as.numeric(listofPresidents$MeanTermDate[i]) + 400)
+  p
+  # assign(picNames[i],x)
+  rm(x)
+  
+}
+
+colourCount = length(unique(listofPresidents$Party)) + 1
+getPalette = colorRampPalette(brewer.pal(8, "Accent"))
+
+p + scale_fill_manual(values = getPalette(colourCount),
+                      name = ""#,                      guide =  "none"
+) +
+  scale_x_date(date_breaks = "10 years", date_labels = "%Y") +
+  #geom_image(aes(image=image)) +
+  #theme_bw() +
+  theme_ipsum_rc(plot_title_size = 15, subtitle_size = 10, caption_size = 5) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+  panel.grid.major.x = element_blank()#,
+  #panel.grid.minor.x = element_blank()
+  ) +
+  labs(x = "Year",
+       y = "Height in centimeters",
+       title = "Comming up short",
+       subtitle = "U.S presidents hights by political party afiliation and term of presidency \nbar heights denote  heights of presidents.",
+       caption = "Presidents' data as of August 13, 2017 \nPictures, presidential terms and party affiliation: https://en.wikipedia.org/wiki/List_of_Presidents_of_the_United_States \n Heights: https://en.wikipedia.org/wiki/Heights_of_presidents_and_presidential_candidates_of_the_United_States.")
+
+```
